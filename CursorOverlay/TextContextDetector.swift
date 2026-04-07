@@ -5,10 +5,9 @@ enum CursorContext: String {
     case normal = "normal-select-teal"
     case text   = "txt-selection-teal"
     case link   = "link-select"
-    // Extend with resize/move/etc. later
 }
 
-// Polls ~20 Hz on a background queue.
+// Polls ~30 Hz on a background queue.
 final class TextContextDetector {
     private let lock = NSLock()
     private var _context: CursorContext = .normal
@@ -22,7 +21,7 @@ final class TextContextDetector {
 
     func start() {
         let t = DispatchSource.makeTimerSource(queue: queue)
-        t.schedule(deadline: .now(), repeating: .milliseconds(50))
+        t.schedule(deadline: .now(), repeating: .milliseconds(33))  // ~30 Hz
         t.setEventHandler { [weak self] in self?.poll() }
         t.resume()
         timer = t
@@ -34,6 +33,14 @@ final class TextContextDetector {
     }
 
     private func poll() {
+        // Primary: read what cursor the active app has set at the WindowServer level.
+        // This works for any app (browsers, Electron, etc.) without AX permission.
+        if let ctx = contextFromSystemCursor() {
+            cursorContext = ctx
+            return
+        }
+
+        // Fallback: AX element inspection (requires Accessibility permission).
         guard AXIsProcessTrusted() else { return }
 
         let nsLoc = NSEvent.mouseLocation
@@ -49,48 +56,80 @@ final class TextContextDetector {
             return
         }
 
-        cursorContext = classify(el)
+        cursorContext = classifyAX(el)
     }
 
-    private func classify(_ el: AXUIElement) -> CursorContext {
-        var ref: CFTypeRef?
-        AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &ref)
-        let role = ref as? String ?? ""
-
-        // Text input / text selection
-        let textRoles: Set<String> = [
-            "AXTextField", "AXTextArea", "AXSearchField", "AXSecureTextField"
-        ]
-        if textRoles.contains(role) { return .text }
-
-        // Container/non-editable roles that expose kAXSelectedTextRangeAttribute
-        // even though they aren't text cursors (e.g. Chrome's AXWebArea).
-        let containerRoles: Set<String> = [
-            "AXWebArea", "AXScrollArea", "AXGroup", "AXApplication",
-            "AXWindow", "AXSplitGroup", "AXTabGroup", "AXList", "AXOutline"
-        ]
-
-        // Has a selected-text range AND a writable value → editable field in web/native content.
-        // Requiring kAXValueAttribute filters out read-only containers like AXWebArea.
-        if !containerRoles.contains(role) {
-            var rangeRef: CFTypeRef?
-            var valueRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-               AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &valueRef) == .success {
-                return .text
+    // MARK: - System cursor detection
+    //
+    // NSCursor.currentSystem returns nil when the hardware cursor is hidden —
+    // macOS won't expose the cursor type if nothing is visible (safety feature).
+    // So we only use it for POSITIVE identification of non-normal states.
+    // If it returns pointingHand or iBeam we trust it immediately.
+    // If it returns nil or the default arrow we fall through to AX.
+    private func contextFromSystemCursor() -> CursorContext? {
+        var ctx: CursorContext? = nil
+        DispatchQueue.main.sync {
+            guard let sysCursor = NSCursor.currentSystem else { return }
+            if sysCursor == NSCursor.pointingHand {
+                ctx = .link
+            } else if sysCursor == NSCursor.iBeam ||
+                      sysCursor == NSCursor.iBeamCursorForVerticalLayout {
+                ctx = .text
             }
+            // Arrow / anything else → return nil, let AX decide
         }
+        return ctx
+    }
 
-        // Link
-        if role == "AXLink" { return .link }
+    // MARK: - AX fallback
 
-        // Check parent for link role (e.g. text inside a link element)
-        var parentRef: CFTypeRef?
-        if AXUIElementCopyAttributeValue(el, kAXParentAttribute as CFString, &parentRef) == .success,
-           let parent = parentRef {
-            var parentRoleRef: CFTypeRef?
-            AXUIElementCopyAttributeValue(parent as! AXUIElement, kAXRoleAttribute as CFString, &parentRoleRef)
-            if (parentRoleRef as? String) == "AXLink" { return .link }
+    private func classifyAX(_ el: AXUIElement) -> CursorContext {
+        // Walk up to 5 ancestor levels checking for link and text indicators.
+        var current: AXUIElement = el
+
+        for depth in 0...5 {
+            var roleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(current, kAXRoleAttribute as CFString, &roleRef)
+            let role = roleRef as? String ?? ""
+
+            // Text inputs — only check at the element itself, not ancestors
+            if depth == 0 {
+                let textRoles: Set<String> = [
+                    "AXTextField", "AXTextArea", "AXSearchField",
+                    "AXSecureTextField", "AXComboBox"
+                ]
+                if textRoles.contains(role) { return .text }
+
+                // Editable web/native fields: must have both a text range and a value
+                let containerRoles: Set<String> = [
+                    "AXWebArea", "AXScrollArea", "AXGroup", "AXApplication",
+                    "AXWindow", "AXSplitGroup", "AXTabGroup", "AXList", "AXOutline"
+                ]
+                if !containerRoles.contains(role) {
+                    var rangeRef: CFTypeRef?
+                    var valueRef: CFTypeRef?
+                    if AXUIElementCopyAttributeValue(current, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
+                       AXUIElementCopyAttributeValue(current, kAXValueAttribute as CFString, &valueRef) == .success {
+                        return .text
+                    }
+                }
+            }
+
+            // Link role at any level
+            if role == "AXLink" { return .link }
+
+            // URL attribute at any level — browsers expose this on link ancestors
+            var urlRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(current, kAXURLAttribute as CFString, &urlRef) == .success,
+               urlRef != nil {
+                return .link
+            }
+
+            // Walk up to parent
+            var parentRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentRef) == .success,
+                  let parent = parentRef else { break }
+            current = (parent as! AXUIElement)
         }
 
         return .normal

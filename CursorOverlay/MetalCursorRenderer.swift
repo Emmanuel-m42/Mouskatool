@@ -36,10 +36,13 @@ final class MetalCursorRenderer {
     private var displayLink: CVDisplayLink?
 
     // MARK: - State
-    private(set) var isEnabled:    Bool         = true
-    private      var lastContext:  CursorContext = .normal
-    private      var cursorHidden: Bool         = false
-    private      var hideCount:    Int          = 0
+    private(set) var isEnabled:         Bool         = true
+    var             highPerformanceMode: Bool         = false
+    private      var lastContext:       CursorContext = .normal
+    private      var cursorHidden:      Bool         = false
+    private      var hideCount:         Int          = 0
+    private      var lastRenderedPos:   CGPoint      = CGPoint(x: -9999, y: -9999)
+    private      let renderLock                      = NSLock()
 
     // MARK: - Event tap
     private var eventTap:      CFMachPort?
@@ -106,12 +109,9 @@ final class MetalCursorRenderer {
     func tick() {
         guard isEnabled else { return }
 
-        // Ensure cursor is hidden. cursorHidden is reset to false by notification handlers
-        // when macOS shows the cursor (Mission Control, space switch, app activation).
         hideCursorNow()
 
         // Retry event tap every ~600 frames (~5s at 120fps) until it installs.
-        // Covers the case where AX permission is granted after launch.
         if eventTap == nil {
             tapRetryCount += 1
             if tapRetryCount >= 600 {
@@ -120,12 +120,39 @@ final class MetalCursorRenderer {
             }
         }
 
+        guard let cgPos = CGEvent(source: nil)?.location else { return }
+
+        // Skip render if position hasn't changed — saves GPU work and battery.
+        if cgPos == lastRenderedPos { return }
+
+        renderFrame(at: cgPos)
+        trackFPS()
+    }
+
+    // Called from the event tap in high performance mode.
+    // Renders immediately on mouse move instead of waiting for the next CVDisplayLink tick.
+    func renderFromEventTap() {
+        guard isEnabled, highPerformanceMode else { return }
+        guard let cgPos = CGEvent(source: nil)?.location else { return }
+        guard cgPos != lastRenderedPos else { return }
+        // tryLock: if CVDisplayLink is already rendering, skip — don't block the event pipeline.
+        guard renderLock.try() else { return }
+        defer { renderLock.unlock() }
+        renderFrame(at: cgPos)
+    }
+
+    private func renderFrame(at cgPos: CGPoint) {
         let context = textDetector.cursorContext
         lastContext = context
 
         guard let entry = cursors[context.rawValue] ?? cursors[CursorContext.normal.rawValue] else { return }
 
-        guard let cgPos = CGEvent(source: nil)?.location else { return }
+        // Acquire render lock when called from CVDisplayLink (not already held).
+        // Event tap path already holds it via tryLock.
+        let needsLock = !highPerformanceMode
+        if needsLock { renderLock.lock() }
+        defer { if needsLock { renderLock.unlock() } }
+
         let screen = NSScreen.main!
         let sw = screen.frame.width
         let sh = screen.frame.height
@@ -138,9 +165,9 @@ final class MetalCursorRenderer {
             normSize: SIMD2(Float(entry.size / sw),   Float(entry.size / sh))
         )
         memcpy(uniformBuffer.contents(), &u, MemoryLayout<CursorUniforms>.size)
+        lastRenderedPos = cgPos
 
         render(texture: entry.texture)
-        trackFPS()
     }
 
     // MARK: - Metal draw
@@ -255,14 +282,22 @@ final class MetalCursorRenderer {
             self.window.orderFrontRegardless()
         }
 
-        // Fires when any app activates (including Dock).
-        // The activating app may assert its own cursor; reset our state so we re-hide.
+        // Fires when any app activates.
+        // If it's the Dock (which runs Mission Control / Exposé), restore the system cursor
+        // so the user can navigate. We re-hide when they return via activeSpaceDidChange.
+        // For all other apps, reset state and re-hide immediately.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
-            object: nil, queue: .main) { [weak self] _ in
+            object: nil, queue: .main) { [weak self] n in
             guard let self, self.isEnabled else { return }
-            self.cursorHidden = false
-            self.hideCursorNow()
+            let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+            if app?.bundleIdentifier == "com.apple.dock" {
+                // Mission Control / Exposé — show system cursor for navigation
+                self.restoreCursor()
+            } else {
+                self.cursorHidden = false
+                self.hideCursorNow()
+            }
         }
     }
 
@@ -457,13 +492,15 @@ private extension String {
 // MARK: - CGEventTap C callback
 
 private func cursorTapCallback(
-    _ proxy:   CGEventTapProxy,
-    _ type:    CGEventType,
-    _ event:   CGEvent,
+    _ proxy:    CGEventTapProxy,
+    _ type:     CGEventType,
+    _ event:    CGEvent,
     _ userInfo: UnsafeMutableRawPointer?
 ) -> Unmanaged<CGEvent>? {
     if let ptr = userInfo {
-        Unmanaged<MetalCursorRenderer>.fromOpaque(ptr).takeUnretainedValue().hideCursorNow()
+        let r = Unmanaged<MetalCursorRenderer>.fromOpaque(ptr).takeUnretainedValue()
+        r.hideCursorNow()
+        r.renderFromEventTap()   // no-op unless highPerformanceMode is on
     }
     return Unmanaged.passRetained(event)
 }

@@ -79,5 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlayState.contextName = r.textDetector.cursorContext.rawValue
         overlayState.fps         = Int(r.reportedFPS)
         overlayState.axTrusted   = AXIsProcessTrusted()
+        // Keep renderer in sync if state was changed externally (e.g. hotkey)
+        r.highPerformanceMode    = overlayState.highPerformanceMode
     }
 }

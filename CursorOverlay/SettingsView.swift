@@ -4,16 +4,22 @@ import AppKit
 // MARK: - Shared state
 
 final class OverlayState: ObservableObject {
-    @Published var isEnabled:    Bool   = true
-    @Published var contextName:  String = "—"
-    @Published var fps:          Int    = 0
-    @Published var axTrusted:    Bool   = false
+    @Published var isEnabled:           Bool   = true
+    @Published var highPerformanceMode: Bool   = false
+    @Published var contextName:         String = "—"
+    @Published var fps:                 Int    = 0
+    @Published var axTrusted:           Bool   = false
 
     weak var renderer: MetalCursorRenderer?
 
     func toggle() {
         isEnabled.toggle()
         if isEnabled { renderer?.enable() } else { renderer?.disable() }
+    }
+
+    func toggleHighPerformance() {
+        highPerformanceMode.toggle()
+        renderer?.highPerformanceMode = highPerformanceMode
     }
 }
 
@@ -142,6 +148,28 @@ private struct ContentBody: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .tint(.teal)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+
+            Divider().padding(.horizontal, 12)
+
+            // ── High Performance Mode ────────────────────────────────
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label("High Performance", systemImage: "bolt.fill")
+                        .foregroundStyle(state.highPerformanceMode ? .yellow : .primary)
+                    Spacer()
+                    Toggle("", isOn: Binding(get: { state.highPerformanceMode },
+                                             set: { _ in state.toggleHighPerformance() }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(.yellow)
+                }
+                Text("Renders on every mouse move for lower latency. May drain battery faster.")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
