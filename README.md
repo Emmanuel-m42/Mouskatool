@@ -2,7 +2,7 @@
 
 A macOS app that replaces your system cursor with a custom cursor pack, system-wide. Built with Metal for low-latency rendering.
 
-Uses only public macOS APIs. No SIP required.
+Uses only public macOS APIs.
 
 ---
 
