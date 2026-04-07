@@ -1,0 +1,17 @@
+# Build output
+build/
+
+# Xcode
+*.xcodeproj/xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Python
+__pycache__/
+*.pyc
+
+# Cursor pack zip
+*.zip
