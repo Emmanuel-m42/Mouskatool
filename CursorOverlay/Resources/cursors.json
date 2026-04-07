@@ -1,0 +1,80 @@
+{
+  "alternate-select-teal": {
+    "hotx": 23,
+    "hoty": 0,
+    "w": 48,
+    "h": 48
+  },
+  "diagonal-resize-backslash": {
+    "hotx": 23,
+    "hoty": 21,
+    "w": 48,
+    "h": 48
+  },
+  "diagonal-resize-frontslash": {
+    "hotx": 23,
+    "hoty": 21,
+    "w": 48,
+    "h": 48
+  },
+  "handwriting": {
+    "hotx": 5,
+    "hoty": 5,
+    "w": 48,
+    "h": 48
+  },
+  "help": {
+    "hotx": 11,
+    "hoty": 3,
+    "w": 48,
+    "h": 48
+  },
+  "horizontal-resize": {
+    "hotx": 23,
+    "hoty": 21,
+    "w": 48,
+    "h": 48
+  },
+  "link-select": {
+    "hotx": 20,
+    "hoty": 7,
+    "w": 48,
+    "h": 48
+  },
+  "move": {
+    "hotx": 23,
+    "hoty": 21,
+    "w": 48,
+    "h": 48
+  },
+  "normal-select-teal": {
+    "hotx": 10,
+    "hoty": 1,
+    "w": 48,
+    "h": 48
+  },
+  "precision-select": {
+    "hotx": 23,
+    "hoty": 23,
+    "w": 48,
+    "h": 48
+  },
+  "txt-selection-teal": {
+    "hotx": 23,
+    "hoty": 3,
+    "w": 48,
+    "h": 48
+  },
+  "unavailable-teal": {
+    "hotx": 10,
+    "hoty": 2,
+    "w": 48,
+    "h": 48
+  },
+  "vertical-resize": {
+    "hotx": 23,
+    "hoty": 21,
+    "w": 48,
+    "h": 48
+  }
+}
