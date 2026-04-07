@@ -18,12 +18,13 @@ Uses only public macOS APIs.
 - macOS 26 (Tahoe) or later
 - Accessibility permission (app will prompt on first launch)
 
-## Setup
+## Install
 
-1. Build with Xcode or `swiftc` (see below)
-2. Run the app
-3. Grant Accessibility permission when prompted
-4. Click the menu bar icon to open the settings panel
+1. Download `Mouskatool-v1.0.zip` from the [latest release](https://github.com/Emmanuel-m42/Mouskatool/releases/latest)
+2. Unzip and move `CursorOverlay.app` to your Applications folder
+3. Open the app
+4. Grant Accessibility permission when prompted
+5. Click the menu bar icon to open the settings panel
 
 ### Build from source
 
