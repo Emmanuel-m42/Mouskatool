@@ -26,25 +26,6 @@ Uses only public macOS APIs.
 4. Grant Accessibility permission when prompted
 5. Click the menu bar icon to open the settings panel
 
-### Build from source
-
-```bash
-swiftc \
-  CursorOverlay/main.swift \
-  CursorOverlay/AppDelegate.swift \
-  CursorOverlay/OverlayWindow.swift \
-  CursorOverlay/MetalCursorRenderer.swift \
-  CursorOverlay/TextContextDetector.swift \
-  CursorOverlay/SettingsView.swift \
-  -framework Cocoa -framework Metal -framework MetalKit \
-  -framework CoreVideo -framework ApplicationServices \
-  -framework SwiftUI \
-  -target arm64-apple-macosx14.0 \
-  -o build/CursorOverlay.app/Contents/MacOS/CursorOverlay
-
-codesign --sign - --force --deep build/CursorOverlay.app
-open build/CursorOverlay.app
-```
 
 ## Cursor pack
 
