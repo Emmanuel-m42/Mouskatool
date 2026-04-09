@@ -5,8 +5,21 @@ import CoreVideo
 import AppKit
 
 struct CursorUniforms {
-    var normPos:  SIMD2<Float>
-    var normSize: SIMD2<Float>
+    var normPos:   SIMD2<Float>
+    var normSize:  SIMD2<Float>
+    var fadeAlpha: Float = 1
+}
+
+struct RingUniforms {
+    var normCenter:    SIMD2<Float>
+    var normRadius:    Float         // in screen-height-normalized units
+    var normThickness: Float
+    var alpha:         Float
+    var aspectRatio:   Float         // screenWidth / screenHeight
+    var colorR:        Float
+    var colorG:        Float
+    var colorB:        Float
+    var _pad:          Float = 0
 }
 
 private struct CursorEntry {
@@ -44,6 +57,15 @@ final class MetalCursorRenderer {
     private      var lastRenderedPos:   CGPoint      = CGPoint(x: -9999, y: -9999)
     private      let renderLock                      = NSLock()
 
+    // Dissolve/ring-ripple animation — driven by CGCursorIsVisible each tick.
+    private var explodeT:          Float  = 0.0
+    private var lastTickTime:      Double = 0.0
+    var ringColor:                 SIMD3<Float> = SIMD3(0.15, 0.85, 0.95)
+
+    // MARK: - Ring pipeline
+    private var ringPipeline:      MTLRenderPipelineState!
+    private var ringUniformBuffer: MTLBuffer!
+
     // MARK: - Event tap
     private var eventTap:      CFMachPort?
     private var tapLoopSource: CFRunLoopSource?
@@ -78,6 +100,10 @@ final class MetalCursorRenderer {
         pipeline      = Self.makePipeline(device: device, pixelFormat: layer.pixelFormat)
         uniformBuffer = device.makeBuffer(length: MemoryLayout<CursorUniforms>.size,
                                            options: .storageModeShared)!
+
+        ringPipeline      = Self.makeRingPipeline(device: device, pixelFormat: layer.pixelFormat)
+        ringUniformBuffer = device.makeBuffer(length: MemoryLayout<RingUniforms>.size,
+                                               options: .storageModeShared)!
 
         cursors = Self.loadCursors(device: device)
     }
@@ -120,10 +146,21 @@ final class MetalCursorRenderer {
             }
         }
 
+        // Drive dissolve/reassemble animation.
+        let now = CACurrentMediaTime()
+        let dt  = Float(lastTickTime > 0 ? min(now - lastTickTime, 0.05) : 0)
+        lastTickTime = now
+        let cursorVisible = _CGCursorIsVisible() != 0
+        if cursorVisible {
+            explodeT = min(1.0, explodeT + dt * 8.0)
+        } else {
+            explodeT = max(0.0, explodeT - dt * 12.0)
+        }
+
         guard let cgPos = CGEvent(source: nil)?.location else { return }
 
-        // Skip render if position hasn't changed — saves GPU work and battery.
-        if cgPos == lastRenderedPos { return }
+        // Render if position changed OR animation is in progress.
+        guard cgPos != lastRenderedPos || explodeT > 0 else { return }
 
         renderFrame(at: cgPos)
         trackFPS()
@@ -161,10 +198,29 @@ final class MetalCursorRenderer {
         let tlY = cgPos.y - entry.hotspot.y
 
         var u = CursorUniforms(
-            normPos:  SIMD2(Float(tlX / sw),         Float(tlY / sh)),
-            normSize: SIMD2(Float(entry.size / sw),   Float(entry.size / sh))
+            normPos:   SIMD2(Float(tlX / sw),        Float(tlY / sh)),
+            normSize:  SIMD2(Float(entry.size / sw), Float(entry.size / sh)),
+            fadeAlpha: 1.0 - explodeT
         )
         memcpy(uniformBuffer.contents(), &u, MemoryLayout<CursorUniforms>.size)
+
+        // Ring uniforms — radius in screen-height-normalized units.
+        let axScale   = Float(UserDefaults(suiteName: "com.apple.universalaccess")?
+                            .double(forKey: "mouseDriverCursorSize") ?? 1.0)
+        let maxRadius     = Float(entry.size) / Float(sh) * 1.5 * axScale
+        let normThickness = maxRadius * 0.08
+        var ru = RingUniforms(
+            normCenter:    SIMD2(Float(cgPos.x / sw), Float(cgPos.y / sh)),
+            normRadius:    explodeT * maxRadius,
+            normThickness: normThickness,
+            alpha:         smoothstep(0.0, 0.2, explodeT),
+            aspectRatio:   Float(sw / sh),
+            colorR:        ringColor.x,
+            colorG:        ringColor.y,
+            colorB:        ringColor.z
+        )
+        memcpy(ringUniformBuffer.contents(), &ru, MemoryLayout<RingUniforms>.size)
+
         lastRenderedPos = cgPos
 
         render(texture: entry.texture)
@@ -184,10 +240,21 @@ final class MetalCursorRenderer {
         guard let buf = commandQueue.makeCommandBuffer(),
               let enc = buf.makeRenderCommandEncoder(descriptor: rpd) else { return }
 
+        // Pass 1: cursor (faded)
         enc.setRenderPipelineState(pipeline)
         enc.setVertexBuffer(uniformBuffer, offset: 0, index: 0)
+        enc.setFragmentBuffer(uniformBuffer, offset: 0, index: 0)
         enc.setFragmentTexture(texture, index: 0)
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+
+        // Pass 2: ring ripple (only while animation is active)
+        if explodeT > 0 {
+            enc.setRenderPipelineState(ringPipeline)
+            enc.setVertexBuffer(ringUniformBuffer, offset: 0, index: 0)
+            enc.setFragmentBuffer(ringUniformBuffer, offset: 0, index: 0)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+        }
+
         enc.endEncoding()
 
         buf.present(drawable)
@@ -211,9 +278,15 @@ final class MetalCursorRenderer {
     // MARK: - System cursor
 
     func hideCursorNow() {
-        guard isEnabled, !cursorHidden else { return }
-        CGDisplayHideCursor(CGMainDisplayID())
-        hideCount += 1
+        guard isEnabled else { return }
+        // Loop until CGCursorIsVisible confirms it's hidden — guards against the Dock
+        // or macOS calling CGDisplayShowCursor and incrementing the counter past 0.
+        var attempts = 0
+        while _CGCursorIsVisible() != 0, attempts < 10 {
+            CGDisplayHideCursor(CGMainDisplayID())
+            hideCount += 1
+            attempts += 1
+        }
         cursorHidden = true
     }
 
@@ -282,22 +355,13 @@ final class MetalCursorRenderer {
             self.window.orderFrontRegardless()
         }
 
-        // Fires when any app activates.
-        // If it's the Dock (which runs Mission Control / Exposé), restore the system cursor
-        // so the user can navigate. We re-hide when they return via activeSpaceDidChange.
-        // For all other apps, reset state and re-hide immediately.
+        // Fires when any app activates — reset hide state and re-hide immediately.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil, queue: .main) { [weak self] n in
             guard let self, self.isEnabled else { return }
-            let app = n.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
-            if app?.bundleIdentifier == "com.apple.dock" {
-                // Mission Control / Exposé — show system cursor for navigation
-                self.restoreCursor()
-            } else {
-                self.cursorHidden = false
-                self.hideCursorNow()
-            }
+            self.cursorHidden = false
+            self.hideCursorNow()
         }
     }
 
@@ -383,7 +447,9 @@ final class MetalCursorRenderer {
         #include <metal_stdlib>
         using namespace metal;
         struct VertexOut { float4 position [[position]]; float2 uv; };
-        struct CursorUniforms { float2 normPos; float2 normSize; };
+        struct CursorUniforms { float2 normPos; float2 normSize; float fadeAlpha; };
+        struct RingUniforms   { float2 normCenter; float normRadius; float normThickness; float alpha; float aspectRatio; float colorR; float colorG; float colorB; float pad; };
+
         vertex VertexOut cursor_vertex(uint vid [[vertex_id]],
                                         constant CursorUniforms& u [[buffer(0)]]) {
             const float2 corners[4] = {float2(0,0),float2(1,0),float2(0,1),float2(1,1)};
@@ -393,9 +459,39 @@ final class MetalCursorRenderer {
             VertexOut o; o.position = float4(ndc, 0, 1); o.uv = uvs[vid]; return o;
         }
         fragment float4 cursor_fragment(VertexOut in [[stage_in]],
+                                         constant CursorUniforms& u [[buffer(0)]],
                                          texture2d<float> tex [[texture(0)]]) {
             constexpr sampler s(filter::linear, address::clamp_to_zero);
-            return tex.sample(s, in.uv);
+            float4 color = tex.sample(s, in.uv);
+            color.a *= u.fadeAlpha;
+            return color;
+        }
+
+        vertex VertexOut ring_vertex(uint vid [[vertex_id]],
+                                      constant RingUniforms& u [[buffer(0)]]) {
+            float padY = u.normRadius + u.normThickness * 3.0 + 0.002;
+            float padX = padY / u.aspectRatio;
+            const float2 corners[4] = {float2(-1,-1),float2(1,-1),float2(-1,1),float2(1,1)};
+            float2 norm = u.normCenter + corners[vid] * float2(padX, padY);
+            float2 ndc  = float2(norm.x * 2.0 - 1.0, 1.0 - norm.y * 2.0);
+            VertexOut o; o.position = float4(ndc, 0, 1);
+            o.uv = corners[vid] * 0.5 + 0.5; return o;
+        }
+        fragment float4 ring_fragment(VertexOut in [[stage_in]],
+                                       constant RingUniforms& u [[buffer(0)]]) {
+            float  padY    = u.normRadius + u.normThickness * 3.0 + 0.002;
+            float2 corners = (in.uv - float2(0.5)) * 2.0;
+            float2 offset  = corners * padY;
+            float  dist    = length(offset);
+            float outer  = u.normRadius;
+            float inner  = outer - u.normThickness;
+            float px     = 0.0008;
+            float ring   = smoothstep(inner - px, inner + px, dist)
+                         * smoothstep(outer + px, outer - px, dist);
+            float glow   = smoothstep(inner, outer + u.normThickness * 1.5, dist)
+                         * smoothstep(outer + u.normThickness * 3.0, outer, dist) * 0.20;
+            float a = clamp(ring + glow, 0.0, 1.0) * u.alpha;
+            return float4(u.colorR, u.colorG, u.colorB, a);
         }
     """
 
@@ -422,6 +518,34 @@ final class MetalCursorRenderer {
         ca.destinationAlphaBlendFactor   = .oneMinusSourceAlpha
 
         return try! device.makeRenderPipelineState(descriptor: d)
+    }
+
+    private static func makeRingPipeline(device: MTLDevice,
+                                          pixelFormat: MTLPixelFormat) -> MTLRenderPipelineState {
+        let lib: MTLLibrary
+        if let defaultLib = device.makeDefaultLibrary() {
+            lib = defaultLib
+        } else {
+            lib = try! device.makeLibrary(source: shaderSource, options: nil)
+        }
+        let d = MTLRenderPipelineDescriptor()
+        d.vertexFunction   = lib.makeFunction(name: "ring_vertex")!
+        d.fragmentFunction = lib.makeFunction(name: "ring_fragment")!
+        d.colorAttachments[0].pixelFormat = pixelFormat
+
+        let ca = d.colorAttachments[0]!
+        ca.isBlendingEnabled           = true
+        ca.sourceRGBBlendFactor        = .sourceAlpha
+        ca.destinationRGBBlendFactor   = .oneMinusSourceAlpha
+        ca.sourceAlphaBlendFactor      = .one
+        ca.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+
+        return try! device.makeRenderPipelineState(descriptor: d)
+    }
+
+    private func smoothstep(_ edge0: Float, _ edge1: Float, _ x: Float) -> Float {
+        let t = max(0, min(1, (x - edge0) / (edge1 - edge0)))
+        return t * t * (3 - 2 * t)
     }
 
     private static func makeProceduralArrow(device: MTLDevice) -> MTLTexture {

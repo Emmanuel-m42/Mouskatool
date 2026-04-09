@@ -9,6 +9,7 @@ final class OverlayState: ObservableObject {
     @Published var contextName:         String = "—"
     @Published var fps:                 Int    = 0
     @Published var axTrusted:           Bool   = false
+    @Published var ringColor:           Color  = Color(red: 0.15, green: 0.85, blue: 0.95)
 
     weak var renderer: MetalCursorRenderer?
 
@@ -20,6 +21,15 @@ final class OverlayState: ObservableObject {
     func toggleHighPerformance() {
         highPerformanceMode.toggle()
         renderer?.highPerformanceMode = highPerformanceMode
+    }
+
+    func applyRingColor(_ c: Color) {
+        ringColor = c
+        let ns = NSColor(c)
+        guard let rgb = ns.usingColorSpace(.sRGB) else { return }
+        renderer?.ringColor = SIMD3(Float(rgb.redComponent),
+                                    Float(rgb.greenComponent),
+                                    Float(rgb.blueComponent))
     }
 }
 
@@ -66,7 +76,8 @@ final class SettingsWindowController {
 
         // Position below the status bar button, or centered on screen
         if let btn = button, let btnWindow = btn.window {
-            let btnRect = btnWindow.convertToScreen(btn.bounds)
+            // btnWindow is the tiny NSStatusBarWindow — its screen frame is exactly the button rect.
+            let btnRect = btnWindow.frame
             let x = btnRect.midX - panel.frame.width / 2
             let y = btnRect.minY - panel.frame.height - 4
             panel.setFrameOrigin(NSPoint(x: x, y: y))
@@ -173,6 +184,52 @@ private struct ContentBody: View {
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
+
+            Divider().padding(.horizontal, 12)
+
+            // ── Ring color ───────────────────────────────────────────
+            HStack {
+                Label("Ring Color", systemImage: "circle.dotted")
+                    .foregroundStyle(.primary)
+                Spacer()
+                Button {
+                    NSApp.activate(ignoringOtherApps: true)
+                    let cp = NSColorPanel.shared
+                    if let ns = NSColor(state.ringColor).usingColorSpace(.sRGB) {
+                        cp.color = ns
+                    }
+                    // Position next to the settings panel, clamped to the visible screen.
+                    if let settings = NSApp.windows.first(where: { $0 is NSPanel && $0.isVisible && !($0 is NSColorPanel) }) {
+                        let screen = settings.screen ?? NSScreen.main ?? NSScreen.screens[0]
+                        let vis = screen.visibleFrame
+                        // Prefer right side; fall back to left if it would clip.
+                        var x = settings.frame.maxX + 8
+                        if x + cp.frame.width > vis.maxX {
+                            x = settings.frame.minX - cp.frame.width - 8
+                        }
+                        var y = settings.frame.maxY - cp.frame.height
+                        // Clamp vertically too.
+                        x = max(vis.minX, min(x, vis.maxX - cp.frame.width))
+                        y = max(vis.minY, min(y, vis.maxY - cp.frame.height))
+                        cp.setFrameOrigin(NSPoint(x: x, y: y))
+                    }
+                    cp.orderFront(nil)
+                } label: {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(state.ringColor)
+                        .frame(width: 28, height: 20)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color.secondary.opacity(0.4), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .onReceive(NotificationCenter.default.publisher(for: NSColorPanel.colorDidChangeNotification)) { _ in
+                state.applyRingColor(Color(NSColorPanel.shared.color))
+            }
 
             Divider().padding(.horizontal, 12)
 
