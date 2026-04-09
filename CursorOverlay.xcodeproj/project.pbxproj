@@ -12,6 +12,8 @@
 		AA0000000000000000000032 /* OverlayWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000023 /* OverlayWindow.swift */; };
 		AA0000000000000000000033 /* MetalCursorRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000024 /* MetalCursorRenderer.swift */; };
 		AA0000000000000000000034 /* TextContextDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000025 /* TextContextDetector.swift */; };
+		AA000000000000000000003A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000002D /* SettingsView.swift */; };
+		AA000000000000000000004B /* Resources in Resources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000004A /* Resources */; };
 		AA0000000000000000000035 /* Shaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000026 /* Shaders.metal */; };
 		AA0000000000000000000036 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000028 /* Cocoa.framework */; };
 		AA0000000000000000000037 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000029 /* Metal.framework */; };
@@ -26,6 +28,8 @@
 		AA0000000000000000000023 /* OverlayWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayWindow.swift; sourceTree = "<group>"; };
 		AA0000000000000000000024 /* MetalCursorRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalCursorRenderer.swift; sourceTree = "<group>"; };
 		AA0000000000000000000025 /* TextContextDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextContextDetector.swift; sourceTree = "<group>"; };
+		AA000000000000000000002D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		AA000000000000000000004A /* Resources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources; sourceTree = "<group>"; };
 		AA0000000000000000000026 /* Shaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = Shaders.metal; sourceTree = "<group>"; };
 		AA0000000000000000000027 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA000000000000000000002C /* CursorOverlay.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CursorOverlay.entitlements; sourceTree = "<group>"; };
@@ -67,6 +71,8 @@
 				AA0000000000000000000023 /* OverlayWindow.swift */,
 				AA0000000000000000000024 /* MetalCursorRenderer.swift */,
 				AA0000000000000000000025 /* TextContextDetector.swift */,
+				AA000000000000000000002D /* SettingsView.swift */,
+				AA000000000000000000004A /* Resources */,
 				AA0000000000000000000026 /* Shaders.metal */,
 				AA0000000000000000000027 /* Info.plist */,
 				AA000000000000000000002C /* CursorOverlay.entitlements */,
@@ -146,6 +152,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AA000000000000000000004B /* Resources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -161,6 +168,7 @@
 				AA0000000000000000000032 /* OverlayWindow.swift in Sources */,
 				AA0000000000000000000033 /* MetalCursorRenderer.swift in Sources */,
 				AA0000000000000000000034 /* TextContextDetector.swift in Sources */,
+				AA000000000000000000003A /* SettingsView.swift in Sources */,
 				AA0000000000000000000035 /* Shaders.metal in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

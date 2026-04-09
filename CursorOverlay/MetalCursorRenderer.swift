@@ -323,7 +323,7 @@ final class MetalCursorRenderer {
         var result: [String: CursorEntry] = [:]
         var log = "--- loadCursors ---\nresourceURL: \(Bundle.main.resourceURL?.path ?? "nil")\n"
 
-        guard let jsonURL  = Bundle.main.url(forResource: "cursors", withExtension: "json"),
+        guard let jsonURL  = Bundle.main.url(forResource: "cursors", withExtension: "json", subdirectory: "Resources") ?? Bundle.main.url(forResource: "cursors", withExtension: "json"),
               let jsonData = try? Data(contentsOf: jsonURL),
               let manifest = try? JSONSerialization.jsonObject(with: jsonData) as? [String: [String: Any]]
         else {
@@ -341,7 +341,7 @@ final class MetalCursorRenderer {
                   let hoty = meta["hoty"] as? Int,
                   let w    = meta["w"]    as? Int else { log += "  \(name): bad meta\n"; continue }
 
-            guard let pngURL = Bundle.main.url(forResource: name, withExtension: "png") else {
+            guard let pngURL = Bundle.main.url(forResource: name, withExtension: "png", subdirectory: "Resources") ?? Bundle.main.url(forResource: name, withExtension: "png") else {
                 log += "  \(name): PNG not found\n"; continue
             }
             // Use CGImageSource to load exact pixel data — NSImage can silently rescale or

@@ -20,11 +20,18 @@ Uses only public macOS APIs.
 
 ## Install
 
-1. Download `Mouskatool-v1.0.zip` from the [latest release](https://github.com/Emmanuel-m42/Mouskatool/releases/latest)
+1. Download `Mouskatool-v1.2.zip` from the [latest release](https://github.com/Emmanuel-m42/Mouskatool/releases/latest)
 2. Unzip and move `CursorOverlay.app` to your Applications folder
-3. Open the app
-4. Grant Accessibility permission when prompted
-5. Click the menu bar icon to open the settings panel
+3. Remove the macOS quarantine flag (required until the app is properly code-signed — see note below):
+   ```
+   xattr -rd com.apple.quarantine /Applications/CursorOverlay.app
+   ```
+   Or: right-click the app → **Open** → click **Open Anyway** in System Settings → Privacy & Security.
+4. Open the app
+5. Grant Accessibility permission when prompted
+6. Click the menu bar icon to open the settings panel
+
+> **Note on code signing:** The app is currently unsigned. macOS Gatekeeper will block it on first launch unless you follow step 3. Proper Apple Developer ID signing and notarization is planned for a future release, which will allow the app to open without any workarounds.
 
 
 ## Cursor pack
